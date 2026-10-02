@@ -1,0 +1,15 @@
+{
+  "name": "tristars",
+  "version": "1.0.0",
+  "description": "3D brawler party game you play with friends over LAN, made for phones.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  }
+}
