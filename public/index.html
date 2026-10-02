@@ -9,7 +9,7 @@
 <title>TriStars</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⭐</text></svg>">
 <link rel="stylesheet" href="style.css">
-<script type="importmap">{ "imports": { "three": "/vendor/three.module.js" } }</script>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -21,7 +21,15 @@
     <input id="name" maxlength="14" placeholder="Your name" autocomplete="off">
     <div class="label">Pick your brawler</div>
     <div id="joinGrid" class="grid"></div>
-    <button id="joinBtn" class="big">PLAY</button>
+    <button id="lanBtn" class="big hidden">PLAY ON THIS WI-FI SERVER</button>
+    <div class="p2p">
+      <button id="hostBtn" class="big blue">HOST GAME</button>
+      <div class="joinRow">
+        <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <button id="codeBtn" class="big">JOIN</button>
+      </div>
+    </div>
+    <div id="joinMsg" class="hint"></div>
   </div>
 </div>
 
@@ -31,6 +39,7 @@
     <div class="lobbyTop">
       <h1 class="logo small">TRI<span>★</span>STARS</h1>
       <div id="joinUrl" class="hint"></div>
+      <button id="leaveBtn" class="small">Leave</button>
     </div>
     <div class="lobbyCols">
       <div class="col">

@@ -3,26 +3,37 @@
 A little 3D brawler party game (Brawl Stars style) that you play with friends over your local Wi-Fi.
 No store, no accounts, no grinding — just pick a brawler and fight. Made mainly for phones.
 
-## Run it
+## Play with room codes (no computer needed)
 
-You need [Node.js](https://nodejs.org) 18+ on one computer (the "host").
+1. Open the game page (the GitHub Pages link, e.g. `https://<you>.github.io/tristars/`).
+2. One person taps **HOST GAME** and gets a 4-letter room code (plus a link to share).
+3. Friends open the page, type the code and tap **JOIN** (or just open the shared link).
+
+The host's phone runs the match, and the other phones connect straight to it (peer-to-peer over WebRTC).
+Internet is only needed for the first few seconds to find each other (via the free PeerJS server).
+The host should keep the screen on and the game open, because if the host leaves, the match ends.
+
+### Putting it on GitHub Pages
+
+The workflow in `.github/workflows/pages.yml` builds and deploys `public/` on every push to `main`.
+In the repo settings go to **Pages → Source: GitHub Actions**, then push to `main` (or run the workflow manually).
+
+To host it anywhere else: `npm install && npm run build`, then upload the `public/` folder to any static host (it must be **https** for wake-lock/fullscreen to work well).
+
+Want your own signaling server instead of the PeerJS cloud? Run a [PeerServer](https://github.com/peers/peerjs-server) and open the page with `?peer=yourhost:9000`.
+
+## Or run a Wi-Fi server on a computer
+
+You need [Node.js](https://nodejs.org) 18+ on one computer.
 
 ```bash
 npm install
 npm start
 ```
 
-The server prints addresses like:
-
-```
-On phones (same Wi-Fi):  http://192.168.1.23:3000
-```
-
-Everyone opens that address in their phone browser (must be on the same Wi-Fi as the host computer).
-The first player to join is the host 👑 and picks the mode and presses **START**.
-If it doesn't connect, allow Node through the computer's firewall.
-
-Tip: on Android tap ⛶ for fullscreen and play in landscape. On iPhone use "Add to Home Screen" for a fuller screen.
+It prints an address like `http://192.168.1.23:3000`. Everyone on the same Wi-Fi opens it and taps **PLAY ON THIS WI-FI SERVER**.
+The first player to join is the host 👑, who picks the mode and presses **START**.
+If phones can't connect, allow Node through the computer's firewall. This mode works fully offline.
 
 ## Modes
 
@@ -52,6 +63,7 @@ Same for the ⚡ super button once it's charged (charge it by hitting enemies). 
 
 ## How it works
 
-- `server.js` — Node HTTP + WebSocket server. Runs the game at 30 ticks/sec (projectiles, damage, bots, modes) and sends each player a snapshot. Enemies hiding in bushes are not sent to you.
+- `public/room.js` — the whole game simulation + lobby (30 ticks/sec: projectiles, damage, bots, modes). Runs either inside the host's browser (room codes) or in Node (`server.js`). Enemies hiding in bushes are not sent to you.
+- `server.js` — optional Node HTTP + WebSocket server for the Wi-Fi mode.
 - `public/main.js` — three.js client: rendering, touch controls, interpolation, sounds.
 - `public/shared.js` — brawler stats, maps and collision code used by both sides. Tweak numbers here to rebalance.

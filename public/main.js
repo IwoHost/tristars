@@ -7,28 +7,127 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r2 = (v) => Math.round(v * 100) / 100;
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 
-let myId = null, lobby = null, joined = false, serverIps = [], serverPort = location.port;
+let myId = null, lobby = null, joined = false, hello = {};
 let selBrawler = S.BRAWLERS[store.get('ts_brawler')] ? store.get('ts_brawler') : 'blaze';
 let G = null; // current match state
 
 // ============ networking ============
-let ws;
-function connect() {
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
+// net.kind: 'lan' (Node server over WebSocket), 'host' (this browser runs the room), 'peer' (joined a room code)
+let net = null;
+const send = (o) => { if (net) net.send(JSON.stringify(o)); };
+function sendJoin() { send({ t: 'join', name: $('name').value, brawler: selBrawler }); }
+const PEER_PREFIX = 'tristars-v1-';
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// Optional own signaling server: ?peer=myhost:9000 (defaults to the free PeerJS cloud)
+const PEER_OPTS = (() => {
+  const v = new URLSearchParams(location.search).get('peer');
+  if (!v) return {};
+  const [host, port] = v.split(':');
+  return { host, port: Number(port) || 443, path: '/', secure: location.protocol === 'https:' };
+})();
+
+function connectLan() {
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
+  net = { kind: 'lan', send: (s) => { if (ws.readyState === 1) ws.send(s); } };
   ws.onopen = () => { $('conn').classList.add('hidden'); if (joined) sendJoin(); };
+  const mine = net;
   ws.onclose = () => {
+    if (net !== mine) return; // switched to a room code game
     $('conn').classList.remove('hidden');
     if (G) teardownGame();
-    setTimeout(connect, 1500);
+    setTimeout(connectLan, 1500);
   };
-  ws.onmessage = (e) => onMsg(JSON.parse(e.data));
+  ws.onmessage = (e) => { if (net === mine) onMsg(JSON.parse(e.data)); };
 }
-const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
-function sendJoin() { send({ t: 'join', name: $('name').value, brawler: selBrawler }); }
+
+let peerLib = null;
+function loadPeer() {
+  if (window.Peer) return Promise.resolve(window.Peer);
+  if (!peerLib) {
+    peerLib = new Promise((res, rej) => {
+      const sc = document.createElement('script');
+      sc.src = 'vendor/peerjs.min.js';
+      sc.onload = () => (window.Peer ? res(window.Peer) : rej(new Error('PeerJS failed to load')));
+      sc.onerror = () => { peerLib = null; rej(new Error('Could not load PeerJS (are you online?)')); };
+      document.head.appendChild(sc);
+    });
+  }
+  return peerLib;
+}
+const asText = (d) => (typeof d === 'string' ? d : new TextDecoder().decode(d));
+
+async function hostRoom() {
+  const Peer = await loadPeer();
+  const { Room } = await import('./room.js');
+  let peer, code;
+  for (let tries = 0; ; tries++) {
+    code = Array.from({ length: 4 }, () => CODE_CHARS[(Math.random() * CODE_CHARS.length) | 0]).join('');
+    try {
+      peer = await new Promise((res, rej) => {
+        const p = new Peer(PEER_PREFIX + code, PEER_OPTS);
+        p.on('open', () => res(p));
+        p.on('error', (e) => { p.destroy(); rej(e); });
+      });
+      break;
+    } catch (e) {
+      if (e.type !== 'unavailable-id' || tries > 4) throw new Error('Could not reach the matchmaking server (' + (e.type || e.message) + ')');
+    }
+  }
+  const room = new Room({ code });
+  setInterval(() => room.tick(), 1000 / S.TICK);
+  peer.on('error', (e) => console.warn('peer error', e.type));
+  peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
+  peer.on('connection', (conn) => {
+    conn.on('open', () => {
+      const h = room.connect((s) => { if (conn.open) conn.send(s); });
+      conn.on('data', (d) => h.message(asText(d)));
+      conn.on('close', h.close);
+      conn.on('error', h.close);
+    });
+  });
+  // our own player talks to the room directly
+  const h = room.connect((s) => queueMicrotask(() => onMsg(JSON.parse(s))));
+  net = { kind: 'host', code, send: (s) => h.message(s) };
+  keepAwake();
+}
+
+async function joinRoom(code) {
+  const Peer = await loadPeer();
+  const peer = await new Promise((res, rej) => {
+    const p = new Peer(PEER_OPTS);
+    p.on('open', () => res(p));
+    p.on('error', (e) => rej(new Error('Could not reach the matchmaking server (' + e.type + ')')));
+  });
+  await new Promise((res, rej) => {
+    const timer = setTimeout(() => rej(new Error(`No room ${code} found`)), 12000);
+    peer.on('error', (e) => { if (e.type === 'peer-unavailable') { clearTimeout(timer); rej(new Error(`No room ${code} found — check the code`)); } });
+    const conn = peer.connect(PEER_PREFIX + code, { serialization: 'raw', reliable: true });
+    conn.on('open', () => {
+      clearTimeout(timer);
+      net = { kind: 'peer', code, send: (s) => { if (conn.open) conn.send(s); } };
+      res();
+    });
+    conn.on('data', (d) => onMsg(JSON.parse(asText(d))));
+    conn.on('close', () => {
+      if (!net) return;
+      net = null; joined = false;
+      if (G) teardownGame();
+      peer.destroy();
+      showScreen('join');
+      $('joinMsg').textContent = '⚠️ Lost connection to the host.';
+    });
+  });
+}
+
+let wakeLock = null;
+async function keepAwake() {
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && net?.kind === 'host') keepAwake(); });
 
 function onMsg(m) {
   switch (m.t) {
-    case 'hello': myId = m.id; serverIps = m.ips || []; serverPort = m.port || serverPort; break;
+    case 'hello': myId = m.id; hello = m; break;
     case 'lobby':
       lobby = m;
       if (G && (!m.inGame || G.endShown)) {
@@ -104,21 +203,60 @@ function renderLobby() {
   $('waitMsg').textContent = lobby.inGame
     ? 'A match is running — you will play in the next one!'
     : isHost ? `${S.MODES[mode].desc}` : 'Waiting for the host to start… 👑';
-  const urls = serverIps.length ? serverIps.map((ip) => `${ip}:${serverPort}`) : [location.host];
-  $('joinUrl').innerHTML = `Friends join on the same Wi-Fi at:<br><b>${urls.map((u) => 'http://' + u).join('<br>')}</b>`;
+  if (hello.code) {
+    const q = new URLSearchParams(location.search); q.set('room', hello.code);
+    const link = `${location.origin}${location.pathname}?${q}`;
+    $('joinUrl').innerHTML = `Room code: <b class="code">${hello.code}</b><br><span class="link">${esc(link)}</span>` +
+      (net?.kind === 'host' ? '<br>📱 You are hosting — keep this screen on!' : '');
+  } else {
+    const ips = hello.ips?.length ? hello.ips.map((ip) => `${ip}:${hello.port}`) : [location.host];
+    $('joinUrl').innerHTML = `Friends join on the same Wi-Fi at:<br><b>${ips.map((u) => 'http://' + u).join('<br>')}</b>`;
+  }
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 $('name').value = store.get('ts_name') || '';
-$('joinBtn').onclick = () => {
+const urlRoom = new URLSearchParams(location.search).get('room');
+if (urlRoom) $('code').value = urlRoom.toUpperCase().slice(0, 4);
+function prepJoin() {
   if (!$('name').value.trim()) $('name').value = 'Brawler' + ((Math.random() * 100) | 0);
   store.set('ts_name', $('name').value);
-  joined = true;
   initAudio();
   goFullscreen();
+}
+function enterLobby() {
+  joined = true;
+  $('joinMsg').textContent = '';
   sendJoin();
   showScreen('lobby');
+}
+let busy = false;
+async function withBusy(label, fn) {
+  if (busy) return;
+  busy = true;
+  for (const b of ['hostBtn', 'codeBtn', 'lanBtn']) $(b).disabled = true;
+  $('joinMsg').textContent = label;
+  try { await fn(); enterLobby(); }
+  catch (e) { $('joinMsg').textContent = '⚠️ ' + e.message; net = null; }
+  busy = false;
+  for (const b of ['hostBtn', 'codeBtn', 'lanBtn']) $(b).disabled = false;
+}
+$('lanBtn').onclick = () => { prepJoin(); joined = true; if (net?.kind === 'lan') enterLobby(); };
+$('hostBtn').onclick = () => { prepJoin(); withBusy('Creating room…', hostRoom); };
+$('codeBtn').onclick = () => {
+  const code = $('code').value.trim().toUpperCase();
+  if (code.length !== 4) { $('joinMsg').textContent = 'Type the 4-letter room code from the host.'; return; }
+  prepJoin();
+  withBusy(`Joining room ${code}…`, () => joinRoom(code));
 };
+$('code').oninput = () => { $('code').value = $('code').value.toUpperCase().replace(/[^A-Z0-9]/g, ''); };
+$('leaveBtn').onclick = () => { const q = new URLSearchParams(location.search); q.delete('room'); location.href = location.pathname + (q.size ? '?' + q : ''); };
+// If we were served by the Node LAN server, offer it too.
+fetch('api/info').then((r) => r.json()).then((info) => {
+  if (!info.lan) return;
+  $('lanBtn').classList.remove('hidden');
+  connectLan();
+}).catch(() => {});
 $('startBtn').onclick = () => { initAudio(); send({ t: 'start' }); };
 $('bots').onchange = () => send({ t: 'settings', bots: $('bots').checked });
 $('fsBtn').onpointerdown = (e) => { e.stopPropagation(); goFullscreen(); };
@@ -131,7 +269,6 @@ function goFullscreen() {
 }
 renderJoin();
 showScreen('join');
-connect();
 
 // ============ audio ============
 let ac = null, noiseBuf = null;
