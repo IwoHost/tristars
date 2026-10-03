@@ -15,11 +15,17 @@ export const STEP = 0.62;        // max height you can walk up without jumping
 export const FALL_DEATH = -6;    // fell into a pit
 export const BULLET_ALT = 0.7;   // bullets fly this high above whoever shot them
 export const BULLET_DROP = 5;    // bullets glide down off ledges this fast
+export const BOUNCE_V = 15;      // bounce pads launch you this hard
+export const JET_FUEL = 1.6;     // seconds of jetpack thrust
+export const AIR_BONUS = 1.25;   // hitting someone in the air does extra damage
 
 export const MODES = {
-  gemgrab: { name: 'Gem Grab', icon: '💎', desc: 'Grab 10 gems and hold them for 15s. The gem mine is on the hill!' },
-  bounty: { name: 'Bounty', icon: '⭐', desc: 'First team to 10 knockouts. Knock enemies into the pits!' },
-  showdown: { name: 'Showdown', icon: '💀', desc: 'Everyone for themselves. Last one standing!' },
+  gemgrab: { name: 'Gem Grab', icon: '💎', desc: 'Grab 10 gems and hold them for 15s.', team: true },
+  ringout: { name: 'Ring Out', icon: '🕳️', desc: 'No health! Hits raise your %, the higher it is the further you fly. Knock enemies off the island.', team: true },
+  ball: { name: 'Rocket Ball', icon: '⚽', desc: 'Shoot and blast the ball into the enemy goal. First to 3.', team: true },
+  koth: { name: 'King of the Hill', icon: '👑', desc: 'Stand on the hill to score. First team to 60.', team: true },
+  bounty: { name: 'Bounty', icon: '⭐', desc: 'First team to 10 knockouts. Knock enemies into the pits!', team: true },
+  showdown: { name: 'Showdown', icon: '💀', desc: 'Everyone for themselves. Last one standing!', team: false },
 };
 
 // attack types: burst (bullets one after another), spread (shotgun), lob (thrown over walls),
@@ -63,6 +69,30 @@ export const BRAWLERS = {
     attack: { type: 'rocket', dmg: 700, range: 8, speed: 15, r: 0.22, splash: 1.6, kb: 8, up: 7, selfKb: 7, selfUp: 12.5 },
     super: { type: 'rocket', count: 3, spread: 0.22, dmg: 800, range: 9, speed: 17, r: 0.25, splash: 2, kb: 11, up: 9, selfKb: 9, selfUp: 14, breakWalls: true },
   },
+  hooky: {
+    name: 'Hooky', icon: '🪝', color: 0x2fa8a0, role: 'Grappler', hp: 3400, speed: 3.5, reload: 1.1, superCost: 3500, weight: 1,
+    desc: 'Hook a wall to zip over to it. Hook an enemy to yank them to you!',
+    attack: { type: 'hook', dmg: 450, range: 8.5, speed: 24, r: 0.25, pull: 15, yank: 9 },
+    super: { type: 'hook', count: 3, spread: 0.3, dmg: 650, range: 9.5, speed: 26, r: 0.3, pull: 18, yank: 13 },
+  },
+  gravo: {
+    name: 'Gravo', icon: '🌀', color: 0x7a5cff, role: 'Gravity Gun', hp: 3300, speed: 3.4, reload: 1.4, superCost: 3800, weight: 1,
+    desc: 'Gravity beam pulls enemies in. Super drops a black hole that sucks everyone in, then BOOM.',
+    attack: { type: 'wave', dmg: 520, range: 7.5, speed: 16, r: 0.35, kb: -6.5, up: 2.5 },
+    super: { type: 'lob', count: 1, dmg: 900, range: 8, splash: 3, dur: 0.7, kb: 13, up: 9, well: { r: 3.4, dur: 2.4, pull: 7 } },
+  },
+  boing: {
+    name: 'Boing', icon: '🏀', color: 0xff8a1f, role: 'Bouncer', hp: 3000, speed: 3.5, reload: 1.5, superCost: 3600, weight: 1,
+    desc: 'Balls that bounce off walls. Super: one GIANT bouncy ball.',
+    attack: { type: 'spread', count: 3, dmg: 380, range: 10, speed: 13, arc: 0.35, r: 0.22, kb: 3, up: 2, bounces: 2 },
+    super: { type: 'spread', count: 1, dmg: 950, range: 18, speed: 12, arc: 0, r: 0.6, kb: 10, up: 6, bounces: 6, pierce: true },
+  },
+  jet: {
+    name: 'Jet', icon: '✈️', color: 0xb0b8c8, role: 'Jetpack', hp: 2800, speed: 3.6, reload: 1.2, superCost: 3600, weight: 0.9, jet: true,
+    desc: 'Hold JUMP in the air to fly with the jetpack. Super: missile barrage.',
+    attack: { type: 'burst', count: 3, dmg: 360, range: 8, speed: 22, spread: 0.04, interval: 0.09, r: 0.16, kb: 1.8 },
+    super: { type: 'rocket', count: 5, spread: 0.35, dmg: 550, range: 8, speed: 16, r: 0.2, splash: 1.3, kb: 7, up: 6 },
+  },
   melody: {
     name: 'Melody', icon: '🎸', color: 0xe8607a, role: 'Healer', hp: 3600, speed: 3.3, reload: 1.6, superCost: 4000, weight: 1,
     desc: 'Sound wave that pushes everyone it passes. Super heals the team.',
@@ -75,8 +105,15 @@ export const BARREL = { dmg: 1300, splash: 2.4, kb: 13, up: 9, respawn: 25 };
 
 // ---------- maps ----------
 // '#' wall, 'B' bush, 'O' pit (fall = knocked out), 'h' high ground, 'm' step (half height),
-// 'E' explosive barrel, 'X' power cube box, '.' floor, '1'/'2' team spawns, 'G' gem mine (on high ground)
-const GEM_TOP = [
+// 'E' explosive barrel, 'X' power cube box, 'J' bounce pad, 'K' crumbling floor, 'C' pushable crate,
+// '.' floor, '1'/'2' team spawns, 'G' gem mine / hill (on high ground), 'Y'/'Z' goals (top/bottom)
+// Team maps are written as the top half + middle row, the bottom half is mirrored.
+const mirrorRow = (s) => s.split('').reverse().join('').replace(/2/g, '1').replace(/Y/g, 'Z');
+const mirror = (top, mid) => [...top, mid, ...top.slice().reverse().map(mirrorRow)];
+// moving platforms: a w x d slab sliding between a and b
+const plat = (ax, az, bx, bz, w, d, period) => ({ ax, az, bx, bz, w, d, period });
+
+const HILLTOP = { name: 'Hilltop', rows: mirror([
   'BB.....2.2.2.....BB',
   'B.................B',
   '...##.........##...',
@@ -86,14 +123,100 @@ const GEM_TOP = [
   '....##.......##....',
   '....#BB.....BB#....',
   'OO....B.....B....OO',
-  'OBB.............BBO',
+  'OBB.....C.......BBO',
   '.##.............##.',
   '......mhhhhhm......',
   '...BB..hhhhh..BB...',
-];
-const GEM_MID = '...##..hhGhh..##...';
-const mirrorRow = (s) => s.split('').reverse().join('').replace(/2/g, '1');
-export const GEM_MAP = [...GEM_TOP, GEM_MID, ...GEM_TOP.slice().reverse().map(mirrorRow)];
+], '...##..hhGhh..##...') };
+
+const CANYON = { name: 'Bounce Canyon', rows: mirror([
+  'hhh....2.2.2....hhh',
+  'hhm.............mhh',
+  '....BB.......BB....',
+  '..##...#...#...##..',
+  '..C....J...J....C..',
+  'OO.....hhhhh.....OO',
+  'OOO....hhhhh....OOO',
+  'OO...BBhh.hhBB...OO',
+  '......E.....E......',
+  '..##.....K.....##..',
+  '..#....KKKKK....#..',
+  '....J...mhm...J....',
+  'BB......hhh......BB',
+], '.BB....mhGhm....BB.') };
+
+const PITSTOP = { name: 'Pit Stop', rows: mirror([
+  'B......2.2.2......B',
+  '...C...........C...',
+  '..hhh.........hhh..',
+  '..mhh...###...hhm..',
+  '...................',
+  'BB..E.........E..BB',
+  '....OOO.....OOO....',
+  '....OOO..J..OOO....',
+  '.##......B......##.',
+  '...BB.........BB...',
+  '.......KKKKK.......',
+  '..J....OOOOO....J..',
+  '.......OOOOO.......',
+], '..##...OOOOO...##..'), plats: [plat(7.5, 13.5, 11.5, 13.5, 2, 2, 6)] };
+
+const ISLE = { name: 'Floating Isle', rows: mirror([
+  'OOOOOOOOOOOOOOOOOOO',
+  'OOOOOOOOOOOOOOOOOOO',
+  'OOO....2.2.2....OOO',
+  'OO...C.......C...OO',
+  'OO..hh.......hh..OO',
+  'OO..hm...J...mh..OO',
+  'OO.......E.......OO',
+  'OOO..BB.....BB..OOO',
+  'OOOO...........OOOO',
+  'OOOOO..KKKKK..OOOOO',
+  'OOOOO..KKKKK..OOOOO',
+  'OOOO.....J.....OOOO',
+  'OOOOOO.......OOOOOO',
+], 'OOOOOOO..G..OOOOOOO'), plats: [plat(3.5, 10, 3.5, 17, 2, 2, 7), plat(15.5, 17, 15.5, 10, 2, 2, 7)] };
+
+const BRIDGES = { name: 'Sky Bridges', rows: mirror([
+  'OOOOOOOOOOOOOOOOOOO',
+  'OOOOOOOOOOOOOOOOOOO',
+  'OOOO...2.2.2...OOOO',
+  'OOOO...........OOOO',
+  'OOOO..J.....J..OOOO',
+  'OOOOO....C....OOOOO',
+  'OOOOOOO.....OOOOOOO',
+  'OOOOOOOO...OOOOOOOO',
+  'OOOOOOOO.K.OOOOOOOO',
+  'OOOOOOOO.K.OOOOOOOO',
+  'OOO...OO.K.OO...OOO',
+  'OOO.E.OO.K.OO.E.OOO',
+  'OOO...OO.K.OO...OOO',
+], 'OOO.J.OO...OO.J.OOO'), plats: [plat(6.5, 9, 6.5, 18, 1.6, 1.6, 8), plat(12.5, 18, 12.5, 9, 1.6, 1.6, 8)] };
+
+const PITCH = { name: 'The Pitch', rows: mirror([
+  '#######YYYYY#######',
+  '....B.........B....',
+  '.......2.2.2.......',
+  '...##.........##...',
+  '...................',
+  'BB......###......BB',
+  '.......J...J.......',
+  '...hh.........hh...',
+  '...hm.........mh...',
+  'O....B.......B....O',
+  'OO...............OO',
+  '.....##.....##.....',
+  '...C...........C...',
+], '..BB...........BB..') };
+
+export const MAPS = {
+  gemgrab: [HILLTOP, CANYON],
+  koth: [HILLTOP, CANYON],
+  bounty: [PITSTOP, HILLTOP, CANYON],
+  ringout: [ISLE, BRIDGES],
+  ball: [PITCH],
+};
+export const GEM_MAP = HILLTOP.rows;
 
 function rng(seed) {
   let a = seed >>> 0;
@@ -135,6 +258,8 @@ export function genShowdownMap(seed) {
   }
   for (let i = 0; i < 4; i++) { const c = 1 + ((rand() * 14) | 0), r = 1 + ((rand() * 14) | 0); if (get(c, r) === '.') put(c, r, 'X'); }
   for (let i = 0; i < 3; i++) { const c = 1 + ((rand() * 14) | 0), r = 1 + ((rand() * 14) | 0); if (get(c, r) === '.') put(c, r, 'E'); }
+  for (let i = 0; i < 2; i++) { const c = 1 + ((rand() * 14) | 0), r = 1 + ((rand() * 14) | 0); if (get(c, r) === '.') put(c, r, 'J'); }
+  for (let i = 0; i < 2; i++) { const c = 1 + ((rand() * 14) | 0), r = 1 + ((rand() * 14) | 0); if (get(c, r) === '.') put(c, r, 'C'); }
   const rows = [];
   for (let r = 0; r < N; r++) {
     let s = '';
@@ -152,18 +277,36 @@ export function genShowdownMap(seed) {
   return rows.map((r) => r.join(''));
 }
 
-export function parseMap(rows) {
+export function parseMap(rows, plats = []) {
   const h = rows.length, w = rows[0].length;
-  const t = [], spawns = [[], []];
+  const t = [], spawns = [[], []], goals = [[], []], crates = [];
   let mine = null;
   for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
     let ch = rows[r][c];
     if (ch === '1') { spawns[0].push([c + 0.5, r + 0.5]); ch = '.'; }
     else if (ch === '2') { spawns[1].push([c + 0.5, r + 0.5]); ch = '.'; }
     else if (ch === 'G') { mine = [c + 0.5, r + 0.5]; ch = 'h'; }
+    else if (ch === 'Z') { goals[0].push([c, r]); ch = '.'; } // bottom goal, defended by team 0
+    else if (ch === 'Y') { goals[1].push([c, r]); ch = '.'; } // top goal, defended by team 1
+    else if (ch === 'C') { crates.push([c + 0.5, r + 0.5]); ch = '.'; }
     t.push(ch);
   }
-  return { w, h, t, spawns, mine };
+  return { w, h, t, spawns, mine, goals, crates, plats, time: 0 };
+}
+
+// moving platform position/velocity at the map's current time
+export function platPos(p, time) {
+  const k = 0.5 - 0.5 * Math.cos((2 * Math.PI * time) / p.period);
+  const dk = 0.5 * Math.sin((2 * Math.PI * time) / p.period) * (2 * Math.PI / p.period);
+  return [p.ax + (p.bx - p.ax) * k, p.az + (p.bz - p.az) * k, (p.bx - p.ax) * dk, (p.bz - p.az) * dk];
+}
+export function platAt(map, x, z) {
+  if (!map.plats) return null;
+  for (const p of map.plats) {
+    const [px, pz, vx, vz] = platPos(p, map.time);
+    if (Math.abs(x - px) <= p.w / 2 && Math.abs(z - pz) <= p.d / 2) return [vx, vz];
+  }
+  return null;
 }
 
 export function tileAt(map, c, r) {
@@ -176,7 +319,7 @@ export function setTile(map, c, r, ch) {
 }
 
 // top height of each tile type
-export const TILE_H = { '.': 0, B: 0, m: 0.6, h: 1.2, O: -50, '#': 2.4, X: 0.9, E: 0.9 };
+export const TILE_H = { '.': 0, B: 0, m: 0.6, h: 1.2, O: -50, '#': 2.4, X: 0.9, E: 0.9, J: 0, K: 0 };
 // things that block movement no matter how high you are
 export const BLOCK = { '#': 1, X: 1, E: 1 };
 export const tileH = (ch) => TILE_H[ch] ?? 0;
@@ -206,6 +349,7 @@ export function groundAt(map, x, z, foot = 0.22) {
     if (BLOCK[ch]) continue;
     g = Math.max(g, tileH(ch));
   }
+  if (g < 0 && platAt(map, x, z)) g = 0;
   return g;
 }
 
@@ -230,11 +374,12 @@ export function moveCircle(map, x, z, dx, dz, rad = PLAYER_R, y = 0) {
 }
 
 export function newBody(x, z, y = 0) {
-  return { x, z, y, vx: 0, vy: 0, vz: 0, grounded: true, stun: 0, leaping: false };
+  return { x, z, y, vx: 0, vy: 0, vz: 0, grounded: true, stun: 0, leaping: false, fuel: JET_FUEL, bounced: false };
 }
 
 // One physics step for a player body. (mx,mz) = wanted move direction (length <= 1).
-export function stepBody(map, b, mx, mz, speed, jump, dt) {
+// thrust = holding jump in the air with a jetpack
+export function stepBody(map, b, mx, mz, speed, jump, dt, thrust = false) {
   let ctrl = b.grounded ? (b.stun > 0 ? 2 : 16) : (b.stun > 0 ? 0.8 : 6);
   if (b.leaping) ctrl = 0;
   const k = Math.min(1, ctrl * dt);
@@ -243,6 +388,12 @@ export function stepBody(map, b, mx, mz, speed, jump, dt) {
   b.stun = Math.max(0, b.stun - dt);
   if (jump && b.grounded && !b.leaping) { b.vy = JUMP_V; b.grounded = false; }
   b.vy -= GRAVITY * dt;
+  if (thrust && !b.grounded && b.fuel > 0) { b.vy = Math.min(b.vy + 40 * dt, 6.5); b.fuel -= dt; }
+  // ride moving platforms
+  if (b.grounded) {
+    const pv = platAt(map, b.x, b.z);
+    if (pv && groundAt(map, b.x, b.z) <= 0.01) { b.x += pv[0] * dt; b.z += pv[1] * dt; }
+  }
   const [nx, nz, hx, hz] = moveCircle(map, b.x, b.z, b.vx * dt, b.vz * dt, PLAYER_R, b.y);
   b.x = nx; b.z = nz;
   // bounce off walls when knocked around
@@ -255,7 +406,31 @@ export function stepBody(map, b, mx, mz, speed, jump, dt) {
     if (b.vy < -11 && b.stun > 0) b.vy = -b.vy * 0.3; // bouncy landing when launched
     else { b.vy = 0; b.grounded = true; b.leaping = false; }
   } else b.grounded = false;
+  if (b.grounded) {
+    b.fuel = Math.min(JET_FUEL, b.fuel + dt * 0.8);
+    if (tileAt(map, Math.floor(b.x), Math.floor(b.z)) === 'J') { b.vy = BOUNCE_V; b.grounded = false; b.bounced = true; }
+  }
   return b;
+}
+
+// Simple physics for the ball and crates
+export function stepObj(map, o, dt, bounce, friction) {
+  o.vy -= GRAVITY * dt;
+  const [nx, nz, hx, hz] = moveCircle(map, o.x, o.z, o.vx * dt, o.vz * dt, o.r, o.y);
+  o.x = nx; o.z = nz;
+  if (hx) o.vx = -o.vx * bounce;
+  if (hz) o.vz = -o.vz * bounce;
+  o.y += o.vy * dt;
+  const g = groundAt(map, o.x, o.z, 0.12);
+  if (o.y <= g && o.y > g - 1.2) {
+    o.y = g;
+    if (o.vy < -2.5) o.vy = -o.vy * bounce; else o.vy = 0;
+    const f = Math.max(0, 1 - friction * dt);
+    o.vx *= f; o.vz *= f;
+    if (tileAt(map, Math.floor(o.x), Math.floor(o.z)) === 'J') o.vy = BOUNCE_V * 0.8;
+    const pv = platAt(map, o.x, o.z);
+    if (pv && g <= 0.01) { o.x += pv[0] * dt; o.z += pv[1] * dt; }
+  }
 }
 
 // knockback multiplier: the more hurt you are, the further you fly (Smash style)

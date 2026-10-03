@@ -11,6 +11,7 @@ No store, no accounts, no grinding: pick a brawler and fight. Made mainly for ph
 - **High ground:** jump up ledges or walk up steps. Bullets can't hit up a cliff. Jump while shooting, or lob over it.
 - **Exploding barrels** set each other off and come back after a while.
 - Knocked-out brawlers turn into **ragdolls**.
+- Hitting someone while they're in the air does **25% bonus damage** (AIR!).
 
 ## Play with room codes (no computer needed)
 
@@ -46,11 +47,16 @@ If phones can't connect, allow Node through the computer's firewall. This mode w
 
 ## Modes
 
-- **💎 Gem Grab** — gems spawn in the middle. Hold 10+ gems as a team for 15 seconds to win. Dying drops your gems!
-- **⭐ Bounty** — first team to 10 knockouts.
-- **💀 Showdown** — free-for-all on a random map. Break boxes for power cubes (more HP & damage). Poison gas closes in.
+- **💎 Gem Grab**: gems spawn on the hill in the middle. Hold 10+ gems as a team for 15 seconds to win. Dying drops your gems!
+- **🕳️ Ring Out**: no health. Hits raise your %, and the higher it is the further you fly. Knock enemies off the floating island. First team to 10.
+- **⚽ Rocket Ball**: shoot, blast and dribble the physics ball into the enemy goal. First to 3.
+- **👑 King of the Hill**: stand on the hill to score a point every second (only if no enemy is on it too). First to 60.
+- **⭐ Bounty**: first team to 10 knockouts.
+- **💀 Showdown**: free-for-all on a random map. Break boxes for power cubes (more HP and damage). Poison gas closes in.
 
-"Fill with bots" adds bots so even 1–2 players get full 3v3 / 8-player matches.
+Each mode picks a random map from its pool (10 maps in total). Maps have bounce pads, crumbling floors, moving platforms, pushable crates, exploding barrels, pits and high ground.
+
+"Fill with bots" adds bots so even 1–2 players get full 3v3 / 8-player matches. While you're respawning you can switch brawler. The host can press **REMATCH** at the end.
 
 ## Brawlers
 
@@ -62,6 +68,10 @@ If phones can't connect, allow Node through the computer's firewall. This mode w
 | 🥊 | Tank | Fast punches, 6000 HP | Jump and smash |
 | 🌵 | Cactus | Needle ball that splits into spikes | Slowing cactus field |
 | 🚀 | Rocco | Rocket that explodes where you aim (shoot your feet to rocket jump!) | 3 wall-breaking rockets |
+| 🪝 | Hooky | Grappling hook: hook a wall to zip to it, hook an enemy to yank them | Triple hook |
+| 🌀 | Gravo | Gravity beam that pulls enemies in | Black hole that sucks everyone in, then explodes |
+| 🏀 | Boing | 3 balls that bounce off walls | One giant bouncy ball |
+| ✈️ | Jet | Blaster burst. Hold JUMP in the air to fly with the jetpack | Missile barrage |
 | 🎸 | Melody | Wide sound wave that pushes everyone | Heals the whole team |
 
 ## Controls

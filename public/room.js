@@ -29,8 +29,16 @@ export class Game {
     this.t = 0;
     this.ended = false;
     this.nid = 1;
-    this.rows = this.mode === 'showdown' ? S.genShowdownMap((Math.random() * 1e9) | 0) : S.GEM_MAP;
-    this.map = S.parseMap(this.rows);
+    const list = S.MAPS[this.mode];
+    const def = this.mode === 'showdown' ? { name: 'Random Wilds', rows: S.genShowdownMap((Math.random() * 1e9) | 0) }
+      : list[(Math.random() * list.length) | 0];
+    this.mapName = def.name;
+    this.map = S.parseMap(def.rows, def.plats || []);
+    this.crumble = new Map(); this.regrow = [];
+    // physics objects: pushable crates (and the ball in Rocket Ball)
+    this.objs = this.map.crates.map(([x, z]) => this.newObj('crate', x, z));
+    if (this.mode === 'ball') { this.ball = this.newObj('ball', this.map.w / 2, this.map.h / 2); this.objs.push(this.ball); }
+    this.ctrl = -1;
     this.boxHp = new Map();
     this.barrels = [];
     this.map.t.forEach((ch, i) => {
@@ -46,7 +54,8 @@ export class Game {
     this.nextGem = 4;
     this.gas = 0; this.nextGas = S.GAS_START; this.gasTick = 0;
     this.out = [];
-    this.timeLimit = this.mode === 'gemgrab' ? 180 : this.mode === 'bounty' ? 150 : 1e9;
+    this.timeLimit = this.mode === 'gemgrab' ? 180 : this.mode === 'showdown' ? 1e9 : 150;
+    this.hillTick = 1;
     this.spawnI = [0, 0];
     this.sdSpawns = this.map.spawns[0].slice().sort(() => Math.random() - 0.5);
     for (const c of humans) this.addPlayer(c, false);
@@ -54,6 +63,10 @@ export class Game {
   }
 
   stats(p) { return S.BRAWLERS[p.brawler]; }
+  newObj(type, x, z) {
+    return { id: this.nid++, type, x, z, y: Math.max(0, S.groundAt(this.map, x, z)), vx: 0, vy: 0, vz: 0, r: type === 'ball' ? 0.36 : 0.42, home: [x, z], goneAt: null };
+  }
+  isTeamMode() { return this.mode !== 'showdown'; }
   hasHumans() { for (const p of this.players.values()) if (!p.bot) return true; return false; }
 
   fillBots() {
@@ -78,9 +91,10 @@ export class Game {
       ...S.newBody(0, 0), a: 0, safeX: 0, safeZ: 0,
       hp: st.hp, maxHp: st.hp, ammo: S.MAX_AMMO, superC: 0, gems: 0, cubes: 0,
       alive: false, respawnAt: 0, lastHurt: -9, lastAtk: -9, reveal: -9, tp: 0, slowUntil: 0,
-      lastHitBy: 0, lastHitAt: -99, lastKb: [0, 0, 0], leap: null,
+      lastHitBy: 0, lastHitAt: -99, lastKb: [0, 0, 0], leap: null, pct: 0, nextBrawler: null,
+      dmgDealt: 0, pitKills: 0, airHits: 0, lx: 0, lz: 0,
       queue: [], kills: 0, deaths: 0, lastShot: -9,
-      ai: { timer: Math.random() * 0.3, mx: 0, mz: 0, jump: false, strafe: Math.random() < 0.5 ? 1 : -1 },
+      ai: { timer: Math.random() * 0.3, mx: 0, mz: 0, jump: false, thrust: 0, strafe: Math.random() < 0.5 ? 1 : -1 },
     };
     this.players.set(p.id, p);
     this.spawn(p);
@@ -97,6 +111,11 @@ export class Game {
       const list = this.map.spawns[p.team];
       pos = list[this.spawnI[p.team]++ % list.length];
     }
+    if (p.nextBrawler && p.nextBrawler !== p.brawler) {
+      p.brawler = p.nextBrawler;
+      this.room.broadcast({ t: 'roster', roster: this.roster() });
+    }
+    p.nextBrawler = null;
     const st = this.stats(p);
     const [x, z] = findFree(this.map, pos[0], pos[1]);
     Object.assign(p, S.newBody(x, z, Math.max(0, S.groundAt(this.map, x, z))));
@@ -105,7 +124,7 @@ export class Game {
     p.maxHp = st.hp + p.cubes * 400;
     p.hp = p.maxHp;
     p.alive = true; p.ammo = S.MAX_AMMO; p.queue = []; p.leap = null; p.tp++;
-    p.lastHurt = this.t; p.slowUntil = 0; p.lastHitBy = 0;
+    p.lastHurt = this.t; p.slowUntil = 0; p.lastHitBy = 0; p.pct = 0; p.lx = p.x; p.lz = p.z;
     this.fx.push(['spawn', r2(p.x), r2(p.z), p.id]);
   }
 
@@ -165,6 +184,14 @@ export class Game {
       case 'split': case 'wave':
         this.bullet(p, spec, dx, dz, isSuper, mul);
         break;
+      case 'hook': {
+        const n = spec.count || 1;
+        for (let i = 0; i < n; i++) {
+          const ang = p.a + (n > 1 ? (i / (n - 1) - 0.5) * 2 * spec.spread : 0);
+          this.bullet(p, spec, Math.sin(ang), Math.cos(ang), isSuper, mul);
+        }
+        break;
+      }
       case 'rocket': {
         const n = spec.count || 1;
         for (let i = 0; i < n; i++) {
@@ -211,7 +238,8 @@ export class Game {
       x: ox, z: oz, y: from ? from[3] : p.y + S.BULLET_ALT, vx: dx * spec.speed, vz: dz * spec.speed, dist: 0, range: spec.range,
       dmg: spec.dmg * mul, r: spec.r, owner: p.id, team: p.team, pierce: !!spec.pierce, hit: new Set(from ? from[2] : []),
       breakWalls: !!spec.breakWalls, kb: spec.kb || 0, up: spec.up || 0, split: spec.splitCount ? spec : null, isSuper, mul,
-      rocket: spec.type === 'rocket' ? spec : null,
+      rocket: spec.type === 'rocket' ? spec : null, hook: spec.type === 'hook' ? spec : null,
+      bounces: spec.bounces || 0, hitObj: new Set(),
     });
   }
 
@@ -222,10 +250,24 @@ export class Game {
     this.fx.push(['kb', p.id, r2(vx), r2(vy), r2(vz), 1]);
   }
 
+  // push a crate / the ball
+  pushObj(o, dx, dz, power, up) {
+    const l = Math.hypot(dx, dz) || 1, s = o.type === 'ball' ? 1.6 : 0.8;
+    o.vx += (dx / l) * power * s; o.vz += (dz / l) * power * s;
+    if (up) o.vy = Math.max(o.vy, 0) + up * s;
+  }
+
+  // grappling hook / rocket boosts: humans get the velocity as an event
+  setVelocity2(p, vx, vy, vz) {
+    if (p.bot) { p.vx = vx; p.vy = vy; p.vz = vz; p.grounded = false; p.stun = Math.max(p.stun, 0.5); }
+    this.fx.push(['kb', p.id, r2(vx), r2(vy), r2(vz), 3]);
+  }
+
   impulse(q, dx, dz, kb, up, self) {
     if (!q.alive || (!kb && !up)) return;
     const l = Math.hypot(dx, dz) || 1;
-    const m = self ? 1 : S.kbMult(q.hp, q.maxHp, this.stats(q).weight);
+    const w = this.stats(q).weight;
+    const m = self ? 1 : this.mode === 'ringout' ? (1 + q.pct / 70) / w : S.kbMult(q.hp, q.maxHp, w);
     const h = Math.min(20, kb * m);
     const vx = (dx / l) * h, vz = (dz / l) * h, vy = Math.min(13, (up || 0) * m);
     if (q.bot) {
@@ -240,11 +282,24 @@ export class Game {
   // ---- damage ----
   damage(target, amount, attacker, isSuper) {
     if (!target.alive) return;
+    let air = false;
+    if (attacker && attacker !== target && !target.grounded && target.y > -1) { amount *= S.AIR_BONUS; air = true; }
     amount = Math.round(amount);
     if (amount <= 0) return;
-    target.hp -= amount; target.lastHurt = this.t; target.reveal = this.t + 0.8;
-    if (attacker && attacker !== target) { target.lastHitBy = attacker.id; target.lastHitAt = this.t; }
-    this.fx.push(['hit', r2(target.x), r2(target.z), amount, target.id, r2(target.y)]);
+    target.lastHurt = this.t; target.reveal = this.t + 0.8;
+    if (attacker && attacker !== target) {
+      target.lastHitBy = attacker.id; target.lastHitAt = this.t;
+      if (attacker.dmgDealt !== undefined) { attacker.dmgDealt += amount; if (air) attacker.airHits++; }
+    }
+    if (this.mode === 'ringout') {
+      // no health in Ring Out: damage turns into knockback %
+      const add = Math.max(1, Math.round(amount / 35));
+      target.pct = Math.min(999, target.pct + add);
+      this.fx.push(['hit', r2(target.x), r2(target.z), add, target.id, r2(target.y), air ? 1 : 0, 1]);
+    } else {
+      target.hp -= amount;
+      this.fx.push(['hit', r2(target.x), r2(target.z), amount, target.id, r2(target.y), air ? 1 : 0, 0]);
+    }
     if (attacker && attacker.superC !== undefined && !isSuper && attacker !== target) {
       attacker.superC = Math.min(1, attacker.superC + amount / this.stats(attacker).superCost);
     }
@@ -256,7 +311,7 @@ export class Game {
     const fell = p.y < -1;
     const [kx, ky, kz] = p.lastKb;
     this.fx.push(['die', r2(p.x), r2(p.z), p.id, killer ? killer.id : 0, r2(p.y), r2(kx), r2(ky), r2(kz)]);
-    if (killer && killer !== p && killer.kills !== undefined) killer.kills++;
+    if (killer && killer !== p && killer.kills !== undefined) { killer.kills++; if (fell) killer.pitKills++; }
     const dx = fell ? p.safeX : p.x, dz = fell ? p.safeZ : p.z;
     if (this.mode === 'showdown') {
       const n = Math.max(1, p.cubes);
@@ -266,7 +321,8 @@ export class Game {
       p.respawnAt = this.t + 3;
       for (let i = 0; i < p.gems; i++) this.dropItem('gem', dx, dz);
       p.gems = 0;
-      if (this.mode === 'bounty' && killer && killer.team !== p.team && killer.team !== undefined) this.kills[killer.team]++;
+      if ((this.mode === 'bounty' || this.mode === 'ringout') && killer && killer.team !== p.team && killer.team !== undefined) this.kills[killer.team]++;
+      else if (this.mode === 'ringout' && fell) this.kills[1 - p.team]++; // fell off on your own: the other team scores
     }
   }
 
@@ -337,6 +393,11 @@ export class Game {
         this.impulse(q, dx, dz, (kb || 0) * (1 - (0.4 * d) / (rad + 0.5)), up || 0);
       }
     }
+    for (const o of this.objs) {
+      if (o.goneAt !== null) continue;
+      const d = Math.hypot(o.x - x, o.z - z);
+      if (d < rad + o.r && o.y > y - 1.2 && o.y < y + rad + 0.5) this.pushObj(o, o.x - x || 0.01, o.z - z, (kb || 4) * (1 - (0.4 * d) / (rad + 0.5)), (up || 3));
+    }
     const c0 = Math.floor(x - rad), c1 = Math.floor(x + rad), rr0 = Math.floor(z - rad), rr1 = Math.floor(z + rad);
     for (let r = rr0; r <= rr1; r++) for (let c = c0; c <= c1; c++) {
       if (Math.hypot(c + 0.5 - x, r + 0.5 - z) > rad + 0.3) continue;
@@ -351,6 +412,9 @@ export class Game {
   update(dt) {
     this.t += dt;
     const t = this.t;
+    this.map.time = t;
+    this.updateCrumble(dt);
+    this.updateObjects(dt);
     for (const p of this.players.values()) {
       if (!p.alive) {
         if (this.mode !== 'showdown' && !this.ended && t >= p.respawnAt) this.spawn(p);
@@ -372,7 +436,7 @@ export class Game {
           this.explode(p.x, p.z, p.y, l.spec.splash, l.spec.dmg * l.mul, p, p.team, true, l.spec.breakWalls, l.spec.kb, l.spec.up);
         } else if (t - p.leap.t0 > 2.5) p.leap = null;
       }
-      if (p.grounded && p.y > -0.1 && !S.pitNear(this.map, p.x, p.z, 0.3)) { p.safeX = p.x; p.safeZ = p.z; }
+      if (p.grounded && p.y > -0.1 && !S.pitNear(this.map, p.x, p.z, 0.3) && !S.platAt(this.map, p.x, p.z)) { p.safeX = p.x; p.safeZ = p.z; }
       if (p.y < S.FALL_DEATH) {
         const killer = t - p.lastHitAt < 6 ? this.players.get(p.lastHitBy) : null;
         this.fx.push(['fall', p.id]);
@@ -399,12 +463,37 @@ export class Game {
       if (l.t >= l.dur) {
         this.lobs.splice(i, 1);
         const owner = this.players.get(l.owner);
+        if (l.spec.well) {
+          const w = l.spec.well;
+          this.fields.push({ id: this.nid++, kind: 'well', x: l.tx, z: l.tz, y: l.ty, r: w.r, until: t + w.dur, next: t, pull: w.pull, team: l.team, owner: l.owner, spec: l.spec, mul: l.mul });
+          continue;
+        }
         this.explode(l.tx, l.tz, l.ty, l.spec.splash, l.spec.dmg * l.mul, owner, l.team, l.isSuper, l.spec.breakWalls, l.spec.kb, l.spec.up, l.spec.selfKb, l.spec.selfUp);
         if (l.spec.field) this.fields.push({ id: this.nid++, x: l.tx, z: l.tz, y: l.ty, r: l.spec.field.r, until: t + l.spec.field.dur, next: t, dps: l.spec.field.dps * l.mul, team: l.team, owner: l.owner });
       }
     }
     for (let i = this.fields.length - 1; i >= 0; i--) {
       const f = this.fields[i];
+      if (f.kind === 'well') {
+        if (t >= f.until) {
+          this.fields.splice(i, 1);
+          this.explode(f.x, f.z, f.y, f.spec.splash, f.spec.dmg * f.mul, this.players.get(f.owner), f.team, true, false, f.spec.kb, f.spec.up);
+          continue;
+        }
+        if (t >= f.next) {
+          f.next = t + 0.1;
+          for (const q of this.players.values()) {
+            const d = Math.hypot(q.x - f.x, q.z - f.z);
+            if (!q.alive || q.team === f.team || d > f.r || d < 0.3 || Math.abs(q.y - f.y) > 2) continue;
+            this.impulse(q, f.x - q.x, f.z - q.z, f.pull * 0.35, 0.4);
+          }
+          for (const o of this.objs) {
+            const d = Math.hypot(o.x - f.x, o.z - f.z);
+            if (o.goneAt === null && d < f.r && d > 0.3) this.pushObj(o, f.x - o.x, f.z - o.z, f.pull * 0.3, 0);
+          }
+        }
+        continue;
+      }
       if (t >= f.until) { this.fields.splice(i, 1); continue; }
       if (t >= f.next) {
         f.next += 0.5;
@@ -431,31 +520,54 @@ export class Game {
     if (!this.ended) this.modeLogic(dt);
   }
 
+  // does the terrain stop a bullet flying at height y over (x,z)?
+  bulletBlocked(x, z, y) {
+    const c = Math.floor(x), r = Math.floor(z);
+    if (c < 0 || r < 0 || c >= this.map.w || r >= this.map.h) return true;
+    const ch = this.map.t[r * this.map.w + c], top = S.tileH(ch);
+    return S.BLOCK[ch] ? top >= y - 0.05 : Math.max(0, top) >= y - 0.05;
+  }
+
   updateProjectiles(dt) {
     const map = this.map;
     for (let i = this.proj.length - 1; i >= 0; i--) {
       const b = this.proj[i];
       const spd = Math.hypot(b.vx, b.vz) * dt;
       const n = Math.max(1, Math.ceil(spd / 0.2));
-      const sx = (b.vx * dt) / n, sz = (b.vz * dt) / n, sdt = dt / n;
-      let dead = false, hitId = null;
+      let sx = (b.vx * dt) / n, sz = (b.vz * dt) / n;
+      const sdt = dt / n;
+      let dead = false, hitId = null, wall = false;
       const owner = this.players.get(b.owner) || null;
       for (let k = 0; k < n && !dead; k++) {
         b.x += sx; b.z += sz; b.dist += spd / n;
         const c = Math.floor(b.x), r = Math.floor(b.z);
-        if (c < 0 || r < 0 || c >= map.w || r >= map.h) { dead = true; break; }
-        const ch = map.t[r * map.w + c];
+        const oob = c < 0 || r < 0 || c >= map.w || r >= map.h;
+        const ch = oob ? '#' : map.t[r * map.w + c];
         const top = S.tileH(ch);
+        let blocked = false;
         if (S.BLOCK[ch]) {
           if (top >= b.y - 0.05) {
-            if (b.breakWalls) this.destroyTile(c, r, owner);
-            else { if (ch === 'X' || ch === 'E') this.hitBox(c, r, b.dmg, owner); dead = true; break; }
+            if (b.breakWalls && !oob) this.destroyTile(c, r, owner);
+            else { if (!oob && (ch === 'X' || ch === 'E') && !b.hook) this.hitBox(c, r, b.dmg, owner); blocked = true; }
           } else b.y = Math.max(top + 0.15, b.y - S.BULLET_DROP * sdt);
         } else {
           if (ch === 'B' && b.breakWalls) this.destroyTile(c, r, owner);
           const g = Math.max(0, top);
-          if (g >= b.y - 0.05) { dead = true; break; } // hit a cliff face
-          b.y = Math.max(g + S.BULLET_ALT, b.y - S.BULLET_DROP * sdt);
+          if (g >= b.y - 0.05) blocked = true; // cliff face
+          else b.y = Math.max(g + S.BULLET_ALT, b.y - S.BULLET_DROP * sdt);
+        }
+        if (blocked) {
+          if (b.bounces > 0) {
+            // ricochet: undo the step and flip the axis that hit
+            b.x -= sx; b.z -= sz;
+            const bx = this.bulletBlocked(b.x + sx, b.z, b.y), bz = this.bulletBlocked(b.x, b.z + sz, b.y);
+            if (bx || !bz) { b.vx = -b.vx; sx = -sx; }
+            if (bz || !bx) { b.vz = -b.vz; sz = -sz; }
+            b.bounces--; b.hit.clear(); b.hitObj.clear();
+            this.fx.push(['bnc', r2(b.x), r2(b.z)]);
+            continue;
+          }
+          dead = true; wall = true; break;
         }
         for (const p of this.players.values()) {
           if (!p.alive || p.team === b.team || b.hit.has(p.id) || b.y < p.y - 0.3 || b.y > p.y + 1.7) continue;
@@ -464,14 +576,39 @@ export class Game {
             b.hit.add(p.id);
             if (b.rocket) { dead = true; break; }
             this.damage(p, b.dmg, owner, b.isSuper);
-            this.impulse(p, b.vx, b.vz, b.kb, b.up);
+            if (b.hook) {
+              // yank them over to you
+              if (owner) this.impulse(p, owner.x - p.x, owner.z - p.z, b.hook.yank, 3);
+              this.fx.push(['hooked', p.id, b.owner]);
+            } else this.impulse(p, b.vx, b.vz, b.kb, b.up);
             if (!b.pierce) { dead = true; hitId = p.id; break; }
+          }
+        }
+        if (dead) break;
+        for (const o of this.objs) {
+          if (o.goneAt !== null || b.hitObj.has(o.id) || b.y < o.y - 0.3 || b.y > o.y + o.r * 2 + 0.5) continue;
+          const rr = b.r + o.r;
+          if ((o.x - b.x) ** 2 + (o.z - b.z) ** 2 < rr * rr) {
+            b.hitObj.add(o.id);
+            if (b.rocket) { dead = true; break; }
+            if (b.hook && owner) { this.pushObj(o, owner.x - o.x, owner.z - o.z, 8, 3); dead = true; break; }
+            this.pushObj(o, b.vx, b.vz, Math.abs(b.kb) + 2.5, (b.up || 0) + 1.5);
+            if (!b.pierce) { dead = true; break; }
           }
         }
         if (b.dist >= b.range) dead = true;
       }
       if (dead) {
         this.proj.splice(i, 1);
+        if (b.hook && wall && owner && owner.alive) {
+          // grappling hook caught a wall: zip over to it
+          const dx = b.x - owner.x, dz = b.z - owner.z, d = Math.hypot(dx, dz) || 1;
+          const sp = b.hook.pull;
+          const top = Math.max(0, S.tileH(S.tileAt(map, Math.floor(b.x + sx), Math.floor(b.z + sz))));
+          const vy = 5 + Math.max(0, Math.min(2.5, top - owner.y)) * 2.6;
+          this.setVelocity2(owner, (dx / d) * sp, vy, (dz / d) * sp);
+          this.fx.push(['zip', b.owner, r2(b.x), r2(b.z)]);
+        }
         if (b.rocket) {
           const ex = b.x - sx * 0.5, ez = b.z - sz * 0.5, rs = b.rocket;
           this.explode(ex, ez, Math.max(0, b.y - S.BULLET_ALT), rs.splash, rs.dmg * b.mul, owner, b.team, b.isSuper, rs.breakWalls, rs.kb, rs.up, rs.selfKb, rs.selfUp);
@@ -490,6 +627,65 @@ export class Game {
     }
   }
 
+  // crumbling floor: stand on it too long and it drops away
+  updateCrumble(dt) {
+    const map = this.map;
+    for (const p of this.players.values()) {
+      if (!p.alive || !p.grounded) continue;
+      const c = Math.floor(p.x), r = Math.floor(p.z);
+      if (S.tileAt(map, c, r) !== 'K') continue;
+      const i = r * map.w + c;
+      const v = (this.crumble.get(i) || 0) + dt;
+      this.crumble.set(i, v);
+      if (v > 0.15 && v - dt <= 0.15) this.fx.push(['shake', c + 0.5, r + 0.5]);
+      if (v >= 0.7) {
+        S.setTile(map, c, r, 'O');
+        this.tc.push([c, r, 'O']);
+        this.fx.push(['brk', c + 0.5, r + 0.5, 'K']);
+        this.crumble.delete(i);
+        this.regrow.push({ c, r, at: this.t + 8 });
+      }
+    }
+    for (let k = this.regrow.length - 1; k >= 0; k--) {
+      const g = this.regrow[k];
+      if (this.t < g.at) continue;
+      this.regrow.splice(k, 1);
+      S.setTile(map, g.c, g.r, 'K');
+      this.tc.push([g.c, g.r, 'K']);
+    }
+  }
+
+  updateObjects(dt) {
+    for (const o of this.objs) {
+      if (o.goneAt !== null) {
+        if (this.t - o.goneAt > 6) {
+          const [hx, hz] = o.type === 'ball' ? [this.map.w / 2, this.map.h / 2] : o.home;
+          Object.assign(o, { x: hx, z: hz, y: Math.max(0, S.groundAt(this.map, hx, hz)) + 2, vx: 0, vy: 0, vz: 0, goneAt: null });
+        }
+        continue;
+      }
+      const ball = o.type === 'ball';
+      S.stepObj(this.map, o, dt, ball ? 0.65 : 0.2, ball ? 1.2 : 4);
+      // players walking into it push / dribble it
+      for (const p of this.players.values()) {
+        if (!p.alive || o.y > p.y + 1.4 || o.y + o.r * 2 < p.y - 0.2) continue;
+        const dx = o.x - p.x, dz = o.z - p.z, d = Math.hypot(dx, dz), min = R + o.r;
+        if (d >= min || d < 0.001) continue;
+        const nx = dx / d, nz = dz / d;
+        const [mx, mz] = S.moveCircle(this.map, o.x, o.z, nx * (min - d), nz * (min - d), o.r, o.y);
+        o.x = mx; o.z = mz;
+        const ps = Math.hypot(p.x - p.lx, p.z - p.lz) / dt;
+        const kick = ball ? Math.max(3, ps * 1.6) : Math.max(1.5, ps);
+        if (o.vx * nx + o.vz * nz < kick) { o.vx = nx * kick; o.vz = nz * kick; if (ball && ps > 2) o.vy = Math.max(o.vy, 2.5); }
+      }
+      if (o.y < S.FALL_DEATH) {
+        o.goneAt = ball ? this.t - 4.5 : this.t;
+        if (ball) this.fx.push(['ballout']);
+      }
+    }
+    for (const p of this.players.values()) { p.lx = p.x; p.lz = p.z; }
+  }
+
   modeLogic(dt) {
     const t = this.t;
     if (this.mode === 'gemgrab') {
@@ -506,7 +702,32 @@ export class Game {
         if (t >= this.cdEnd) return this.finish(lead);
       } else this.cdTeam = -1;
       if (t >= this.timeLimit) return this.finish(lead);
-    } else if (this.mode === 'bounty') {
+    } else if (this.mode === 'ball') {
+      const b = this.ball;
+      if (b.goneAt === null) {
+        for (const tm of [0, 1]) {
+          if (!this.map.goals[tm].some(([c, r]) => Math.floor(b.x) === c && Math.floor(b.z) === r)) continue;
+          const scorer = 1 - tm;
+          this.score[scorer]++;
+          this.fx.push(['goal', scorer]);
+          Object.assign(b, { x: this.map.w / 2, z: this.map.h / 2, y: 2, vx: 0, vy: 0, vz: 0 });
+          if (this.score[scorer] >= 3) return this.finish(scorer);
+          for (const p of this.players.values()) if (p.alive) this.spawn(p);
+          break;
+        }
+      }
+      if (t >= this.timeLimit) return this.finish(this.score[0] > this.score[1] ? 0 : this.score[1] > this.score[0] ? 1 : -1);
+    } else if (this.mode === 'koth') {
+      if (t >= this.hillTick) {
+        this.hillTick = t + 1;
+        const [hx, hz] = this.map.mine;
+        const on = new Set();
+        for (const p of this.players.values()) if (p.alive && Math.hypot(p.x - hx, p.z - hz) < 2.4 && p.y > 0.8) on.add(p.team);
+        this.ctrl = on.size === 1 ? [...on][0] : on.size > 1 ? -2 : -1;
+        if (this.ctrl >= 0) { this.score[this.ctrl]++; if (this.score[this.ctrl] >= 60) return this.finish(this.ctrl); }
+      }
+      if (t >= this.timeLimit) return this.finish(this.score[0] > this.score[1] ? 0 : this.score[1] > this.score[0] ? 1 : -1);
+    } else if (this.mode === 'bounty' || this.mode === 'ringout') {
       if (this.kills[0] >= 10) return this.finish(0);
       if (this.kills[1] >= 10) return this.finish(1);
       if (t >= this.timeLimit) return this.finish(this.kills[0] > this.kills[1] ? 0 : this.kills[1] > this.kills[0] ? 1 : -1);
@@ -530,8 +751,9 @@ export class Game {
     this.ended = true;
     this.endAt = this.t + 6;
     const ranking = [...this.players.values()].filter((p) => p.alive).map((p) => p.id).concat(this.out.slice().reverse());
-    const stats = [...this.players.values()].map((p) => ({ id: p.id, name: p.name, brawler: p.brawler, team: p.team, kills: p.kills, deaths: p.deaths }));
-    this.room.broadcast({ t: 'end', mode: this.mode, winTeam, ranking, stats, score: this.mode === 'bounty' ? this.kills : this.score });
+    const stats = [...this.players.values()].map((p) => ({ id: p.id, name: p.name, brawler: p.brawler, team: p.team, kills: p.kills, deaths: p.deaths,
+      pitKills: p.pitKills, dmg: p.dmgDealt, airHits: p.airHits }));
+    this.room.broadcast({ t: 'end', mode: this.mode, winTeam, ranking, stats, score: this.mode === 'bounty' || this.mode === 'ringout' ? this.kills : this.score });
   }
 
   // ---- bots ----
@@ -555,7 +777,12 @@ export class Game {
     if ((mx || mz) && p.grounded && S.circleHits(this.map, p.x + mx * 0.45, p.z + mz * 0.45, R, p.y) &&
       !S.circleHits(this.map, p.x + mx * 0.45, p.z + mz * 0.45, R, p.y + 1.4)) jump = true;
     ai.jump = false;
-    S.stepBody(this.map, p, mx, mz, spd, jump, dt);
+    const thrust = st.jet && ai.thrust > 0;
+    ai.thrust = Math.max(0, ai.thrust - dt);
+    // jet bots: keep flying when about to fall into a pit
+    const saveMe = st.jet && !p.grounded && p.vy < 0 && S.groundAt(this.map, p.x, p.z) < -1;
+    p.bounced = false;
+    S.stepBody(this.map, p, mx, mz, spd, jump, dt, thrust || saveMe);
     if ((mx || mz) && this.t - p.lastShot > 0.4) p.a = Math.atan2(mx, mz);
   }
 
@@ -626,6 +853,13 @@ export class Game {
     const home = this.mode !== 'showdown' ? this.map.spawns[p.team][1] : null;
 
     if (inDanger) goal = [map.w / 2, map.h / 2];
+    // Rocket Ball: the ball comes first unless someone is right in our face
+    if (this.mode === 'ball' && this.ball.goneAt === null && (!target || bd > 4.5)) return this.botBall(p);
+    // King of the Hill: get on the hill
+    if (this.mode === 'koth' && (!target || bd > 5.5)) {
+      const [hx, hz] = map.mine;
+      if (Math.hypot(p.x - hx, p.z - hz) > 1.6) goal = [hx + Math.sin(p.id) * 1.2, hz + Math.cos(p.id) * 1.2];
+    }
     if (target) {
       const above = target.y > p.y + 0.5;
       let canHit = st.attack.type === 'lob' || S.shotClear(map, p.x, p.z, target.x, target.z, Math.max(p.y, target.y - 0.3));
@@ -636,6 +870,14 @@ export class Game {
       const ca = Math.cos(err), sa = Math.sin(err);
       [aimX, aimZ] = [aimX * ca - aimZ * sa, aimX * sa + aimZ * ca];
       const fire = () => !above || lob || !p.grounded;
+      // Rocco: rocket jump up to enemies on high ground (or just for style)
+      if (st.attack.type === 'rocket' && p.grounded && p.ammo >= 2 && t - p.lastShot > 0.6 && t > 3 &&
+        ((above && bd < 7) || Math.random() < 0.015)) {
+        const ux = (target.x - p.x) / bd, uz = (target.z - p.z) / bd;
+        this.attack(p, -ux * 0.14, -uz * 0.14, false);
+        return;
+      }
+      if (st.jet && (above || Math.random() < 0.05)) { ai.jump = true; ai.thrust = 0.6; }
       if (p.superC >= 1 && bd < (st.super.range || 6) * 0.9 && (canHit || st.super.type === 'lob' || st.super.type === 'leap' || st.super.type === 'heal')) {
         if (st.super.type !== 'heal' || p.hp < p.maxHp * 0.6) {
           const f = st.super.range ? bd / st.super.range : 1;
@@ -651,7 +893,12 @@ export class Game {
         if (scared && home) goal = home;
         else if (scared) goal = [p.x - (target.x - p.x), p.z - (target.z - p.z)];
         else if (bd > prefer || !canHit) goal = [target.x, target.z];
-        else {
+        else if (this.pitBehind(target)) {
+          // get on the far side so our hits push them into the pit
+          const [px, pz] = this.pitBehind(target);
+          const ux = target.x - px, uz = target.z - pz, l = Math.hypot(ux, uz) || 1;
+          goal = [target.x + (ux / l) * Math.min(prefer, 2.5), target.z + (uz / l) * Math.min(prefer, 2.5)];
+        } else {
           if (Math.random() < 0.08) ai.strafe *= -1;
           if (Math.random() < 0.03) ai.jump = true;
           const ux = (target.x - p.x) / bd, uz = (target.z - p.z) / bd;
@@ -699,6 +946,35 @@ export class Game {
     else ai.mx = ai.mz = 0;
   }
 
+  pitBehind(q) {
+    let best = null, bd = 3.2;
+    const c0 = Math.floor(q.x), r0 = Math.floor(q.z);
+    for (let r = r0 - 3; r <= r0 + 3; r++) for (let c = c0 - 3; c <= c0 + 3; c++) {
+      if (S.tileAt(this.map, c, r) !== 'O' || c < 0 || r < 0 || c >= this.map.w || r >= this.map.h) continue;
+      const d = Math.hypot(c + 0.5 - q.x, r + 0.5 - q.z);
+      if (d < bd) { bd = d; best = [c + 0.5, r + 0.5]; }
+    }
+    return best;
+  }
+
+  botBall(p) {
+    const ai = p.ai, b = this.ball, st = this.stats(p), t = this.t;
+    const goalT = this.map.goals[1 - p.team];
+    const gx = goalT.reduce((s, g) => s + g[0] + 0.5, 0) / goalT.length, gz = goalT.reduce((s, g) => s + g[1] + 0.5, 0) / goalT.length;
+    const dx = gx - b.x, dz = gz - b.z, dl = Math.hypot(dx, dz) || 1;
+    const behind = [b.x - (dx / dl) * 1.1, b.z - (dz / dl) * 1.1];
+    const db = Math.hypot(b.x - p.x, b.z - p.z);
+    // shoot the ball towards the goal when lined up
+    const tx = b.x - p.x, tz = b.z - p.z;
+    const lined = (tx * dx + tz * dz) / ((db || 1) * dl) > 0.6;
+    const range = st.attack.range;
+    if (lined && db < range * 0.8 && p.ammo >= 1 && !p.queue.length && t - p.lastShot > 0.5 && t > 3 && st.attack.type !== 'lob') {
+      this.attack(p, tx / db, tz / db, false);
+    }
+    const g = Math.hypot(behind[0] - p.x, behind[1] - p.z) > 0.7 && !lined ? behind : [b.x, b.z];
+    [ai.mx, ai.mz] = this.pathDir(p, g[0], g[1]);
+  }
+
   // ---- networking ----
   snapshot(viewerId) {
     const v = this.players.get(viewerId);
@@ -710,17 +986,20 @@ export class Game {
       if (q.team !== vt && q.alive && bush && this.t >= q.reveal && !allies.some((a) => dist(a, q) < 2.3)) continue;
       const flags = (q.alive ? 1 : 0) | (bush ? 2 : 0) | (q.grounded ? 0 : 4) | (q.slowUntil > this.t ? 8 : 0) | (q.stun > 0 ? 16 : 0);
       p.push([q.id, r2(q.x), r2(q.z), r2(q.a), Math.ceil(q.hp), q.maxHp, flags, this.mode === 'showdown' ? q.cubes : q.gems,
-        Math.round(q.ammo * 100) / 100, Math.round(q.superC * 100) / 100, q.tp, q.alive ? 0 : Math.max(0, Math.ceil(q.respawnAt - this.t)), r2(q.y)]);
+        Math.round(q.ammo * 100) / 100, Math.round(q.superC * 100) / 100, q.tp, q.alive ? 0 : Math.max(0, Math.ceil(q.respawnAt - this.t)), r2(q.y), q.pct]);
     }
     let sc;
     if (this.mode === 'gemgrab') sc = { s: this.score, cd: this.cdTeam >= 0 ? Math.max(0, Math.ceil(this.cdEnd - this.t)) : null, cdT: this.cdTeam, tl: Math.max(0, Math.ceil(this.timeLimit - this.t)) };
-    else if (this.mode === 'bounty') sc = { s: this.kills, tl: Math.max(0, Math.ceil(this.timeLimit - this.t)) };
+    else if (this.mode === 'bounty' || this.mode === 'ringout') sc = { s: this.kills, tl: Math.max(0, Math.ceil(this.timeLimit - this.t)) };
+    else if (this.mode === 'ball') sc = { s: this.score, tl: Math.max(0, Math.ceil(this.timeLimit - this.t)) };
+    else if (this.mode === 'koth') sc = { s: this.score, tl: Math.max(0, Math.ceil(this.timeLimit - this.t)), ctrl: this.ctrl };
     else sc = { alive: [...this.players.values()].filter((q) => q.alive).length, gas: this.gas };
     return {
       t: 's', tm: r2(this.t), p,
       pr: this.proj.map((b) => [b.id, b.kind, r2(b.x), r2(b.z), r2(b.vx), r2(b.vz), b.owner, r2(b.y)]),
       lb: this.lobs.map((l) => [l.id, l.kind, r2(l.sx), r2(l.sz), r2(l.tx), r2(l.tz), r2(l.t), r2(l.dur), l.owner, r2(l.sy), r2(l.ty)]),
-      fd: this.fields.map((f) => [f.id, r2(f.x), r2(f.z), f.r, f.team, r2(f.y)]),
+      fd: this.fields.map((f) => [f.id, r2(f.x), r2(f.z), f.r, f.team, r2(f.y), f.kind || 'slow']),
+      ob: this.objs.filter((o) => o.goneAt === null).map((o) => [o.id, o.type, r2(o.x), r2(o.z), r2(o.y), r2(o.vx), r2(o.vz)]),
       it: this.items.map((i) => [i.id, i.type, r2(i.x), r2(i.z)]),
       fx: this.fx, tc: this.tc, sc,
     };
@@ -728,7 +1007,8 @@ export class Game {
 
   startMsg(youId) {
     return { t: 'gstart', mode: this.mode, rows: this.map.t.reduce((acc, ch, i) => { const r = (i / this.map.w) | 0; acc[r] = (acc[r] || '') + ch; return acc; }, []),
-      spawns: this.map.spawns, mine: this.map.mine, roster: this.roster(), you: youId };
+      spawns: this.map.spawns, mine: this.map.mine, roster: this.roster(), you: youId,
+      plats: this.map.plats, goals: this.map.goals, mapName: this.mapName, time: this.t };
   }
 }
 
@@ -818,7 +1098,15 @@ export class Room {
         break;
       }
       case 'pick':
-        if (S.BRAWLERS[m.brawler]) { c.brawler = m.brawler; this.broadcastLobby(); }
+        if (S.BRAWLERS[m.brawler]) {
+          c.brawler = m.brawler;
+          this.broadcastLobby();
+          const p = g && g.players.get(c.id);
+          if (p) p.nextBrawler = m.brawler; // takes effect on your next respawn
+        }
+        break;
+      case 'rematch':
+        if (c.id === this.hostId && g && g.ended) { this.game = null; this.startGame(); }
         break;
       case 'team':
         if (m.team === 0 || m.team === 1) { c.team = m.team; this.broadcastLobby(); }

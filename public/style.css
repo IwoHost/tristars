@@ -147,3 +147,27 @@ button.big:disabled { filter: grayscale(1) brightness(.7); }
 #endStats .b { color: #7ab8ff; }
 #endStats .r { color: #ff8a8a; }
 #conn { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #c33; padding: 6px 14px; border-radius: 10px; z-index: 50; font-family: system-ui, sans-serif; }
+
+/* physics update */
+.dmg.air { color: #7fe8ff; }
+.plabel .hpt.pct { font-size: 15px; font-family: 'Arial Black', sans-serif; text-shadow: 0 2px 0 #000, 0 0 3px #000; }
+.plabel .fuel { width: 58px; height: 5px; margin: 2px auto 0; background: #000a; border: 1px solid #000; border-radius: 2px; overflow: hidden; }
+.plabel .fuel i { display: block; height: 100%; background: #7fe8ff; }
+#feed { position: absolute; top: max(44px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+.kf { background: #000a; padding: 2px 8px; border-radius: 8px; font-family: system-ui, sans-serif; font-size: 12px; white-space: nowrap; animation: kfIn .2s ease-out; }
+@keyframes kfIn { from { transform: translateX(30px); opacity: 0; } }
+#respawnPick {
+  position: absolute; left: 50%; bottom: max(8px, env(safe-area-inset-bottom)); transform: translateX(-50%); pointer-events: auto;
+  display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; max-width: 70vw; background: #0008; padding: 6px; border-radius: 12px;
+}
+.rp { width: 46px; text-align: center; font-size: 24px; border: 2px solid #000; border-radius: 10px; background: #3a2490; cursor: pointer; padding: 2px 0; }
+.rp small { display: block; font-size: 9px; font-family: system-ui, sans-serif; }
+.rp.sel { background: linear-gradient(#ffd23f, #f08c1a); color: #2a1600; }
+#awards { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.award { background: #0006; border: 2px solid #ffd23f; border-radius: 10px; padding: 4px 10px; font-family: system-ui, sans-serif; font-size: 12px; }
+.award b { display: block; font-size: 14px; }
+.award.me { background: #ffd23f33; }
+#rematchBtn { align-self: center; padding: 10px 26px; font-size: 22px; }
+.grid { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); }
+.modes { flex-wrap: wrap; }
+.mode { flex: 1 1 30%; }
