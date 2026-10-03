@@ -15,8 +15,8 @@ The host should keep the screen on and the game open, because if the host leaves
 
 ### Putting it on GitHub Pages
 
-The workflow in `.github/workflows/pages.yml` builds and deploys `public/` on every push to `main`.
-In the repo settings go to **Pages → Source: GitHub Actions**, then push to `main` (or run the workflow manually).
+In the repo settings set **Pages → Source: Deploy from a branch → `main` / (root)**. The root `index.html` redirects to `public/`,
+and the browser libraries are committed in `public/vendor` (refresh them with `npm run build` after updating dependencies).
 
 To host it anywhere else: `npm install && npm run build`, then upload the `public/` folder to any static host (it must be **https** for wake-lock/fullscreen to work well).
 

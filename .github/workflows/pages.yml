@@ -1,8 +1,8 @@
 name: Deploy to GitHub Pages
 
+# Optional: only needed if Pages source is set to "GitHub Actions".
+# With "Deploy from a branch" (main, / root) the committed files are served directly.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
