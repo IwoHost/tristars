@@ -132,6 +132,10 @@ button.big:disabled { filter: grayscale(1) brightness(.7); }
 }
 .btn.super.ready { filter: none; opacity: 1; background: radial-gradient(#fff36b, #ffb000); animation: pulse .8s infinite alternate; }
 @keyframes pulse { to { box-shadow: 0 0 25px #ffe100, 0 5px 0 #0008; } }
+.btn.jump {
+  width: 15vmin; height: 15vmin; right: calc(max(4vmin, env(safe-area-inset-right)) + 4.5vmin); bottom: 34vmin;
+  background: radial-gradient(#9fe8ff, #2a9de1); font-size: 8vmin; color: #fff; text-shadow: 0 2px 0 #0006;
+}
 .btn.held { transform: scale(.92); }
 #fsBtn { position: absolute; top: max(6px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); font-size: 22px; pointer-events: auto; background: #0006; border-radius: 8px; padding: 2px 8px; }
 

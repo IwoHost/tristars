@@ -1,7 +1,16 @@
 # ★ TriStars
 
-A little 3D brawler party game (Brawl Stars style) that you play with friends over your local Wi-Fi.
-No store, no accounts, no grinding — just pick a brawler and fight. Made mainly for phones.
+A little 3D physics brawler party game (Brawl Stars style, with rocket jumps and ragdolls) that you play with friends.
+No store, no accounts, no grinding: pick a brawler and fight. Made mainly for phones.
+
+## Physics
+
+- Every hit **knocks you back**. The lower your health, the further you fly (Smash style).
+- Explosions launch people into the air. Knock enemies into the **pits** to knock them out instantly.
+- **Rocket jumps:** your own explosions push you without hurting you. Play Rocco 🚀 and shoot your feet to fly. Pip's bombs work too.
+- **High ground:** jump up ledges or walk up steps. Bullets can't hit up a cliff. Jump while shooting, or lob over it.
+- **Exploding barrels** set each other off and come back after a while.
+- Knocked-out brawlers turn into **ragdolls**.
 
 ## Play with room codes (no computer needed)
 
@@ -52,14 +61,15 @@ If phones can't connect, allow Node through the computer's firewall. This mode w
 | 💣 | Pip | Lobs 2 bombs over walls | Huge barrel bomb |
 | 🥊 | Tank | Fast punches, 6000 HP | Jump and smash |
 | 🌵 | Cactus | Needle ball that splits into spikes | Slowing cactus field |
-| 🎸 | Melody | Wide piercing sound wave | Heals the whole team |
+| 🚀 | Rocco | Rocket that explodes where you aim (shoot your feet to rocket jump!) | 3 wall-breaking rockets |
+| 🎸 | Melody | Wide sound wave that pushes everyone | Heals the whole team |
 
 ## Controls
 
-**Phone:** left side = move joystick. Attack button: **tap** to auto-aim, **drag** to aim and release to fire.
+**Phone:** left side = move joystick, blue ⤒ button = jump. Attack button: **tap** to auto-aim, **drag** to aim and release to fire.
 Same for the ⚡ super button once it's charged (charge it by hitting enemies). Hide in bushes!
 
-**Keyboard:** WASD to move, mouse to aim, left click attack, right click / E super, Space auto-attack.
+**Keyboard:** WASD to move, Space jump, mouse to aim, left click attack, right click / E super, F auto-attack.
 
 ## How it works
 
